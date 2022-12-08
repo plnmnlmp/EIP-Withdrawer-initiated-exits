@@ -302,7 +302,7 @@ Validity of the request on consensus layer is checked using consensus layer cons
 In the proposed design, it is decided to limit the minimum interval between two exit requests from the same validator. An alternative design would be based on the convention that each validator has a right for exactly one correct request. This option is more optimal in terms of computational complexity. The corresponding unoptimised code could be like below:
 
 ```solidity
-mapping(uint256 => bool) private validatorAttempted;	     # validator id => attempted
+mapping(uint256 => bool) private validatorAttempted;	     // validator id => attempted
 .....
 require(!validatorAttempted[validatorID], "This validator is already withdrawn");
 	.....
