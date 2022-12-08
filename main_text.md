@@ -1,20 +1,20 @@
 ### Withdrawer initiated exits
 
-##Abstract
+## Abstract
 Introduce a new type of message from a dedicated smart contract to trigger a validator exit. The message provides the owner of type 0x01 withdrawal credentials the capability to initiate the validator exit.
 
-##Motivation
+## Motivation
 Currently, control over withdrawal credentials doesn’t provide the capability to initiate the validator exit and withdraw the funds. This goes against the needs and intuitive rights of stake owners, and creates difficulties for delegated staking solutions. The methods used to circumvent these problems - such as presigned voluntary exit requests - are cumbersome to implement safely or trustlessly. Thus it seems important that withdrawer exits get enabled in the Ethereum protocol.
 
 
-##Solution
+## Solution
 We propose to use a similar mechanism as is used for deposits to initiate the exits by 0x01 withdrawal credentials. To make sure the beacon chain is not DoSed by exit requests, we propose to implement a set of validity checks on the execution layer (using Merkle proofs vs beacon state root) and set a limit to the number of valid exit attempts per block. If all validity checks are passed, a message is emitted on EL as an EVM event from a smart contract. Then parsed, and processed on a beacon chain client just like DepositEvent from DepositContract is processed.
 One difference from a deposit contract is that we propose this event to be a request from the execution layer to consensus layer that is not guaranteed to succeed. The reason for this is that making this request a guaranteed success would require a tighter coupling between execution layer and consensus layer that seems healthy.
 
-##Specification 
+## Specification 
 The sequence of operations for triggering a withdrawal is divided into two parts: first, pre-checks implemented in the smart contract and emission of an event, and then the event processing on the beacon chain client.
 
-#Exit initiation smart contract
+# Exit initiation smart contract
 
 The dedicated contract sequentially checks four conditions:
 1. The last exit request from this validator was at least WITHDRAWER_EXIT_ATTEMPTS_INTERVAL blocks ago.
@@ -24,9 +24,9 @@ The dedicated contract sequentially checks four conditions:
 
 
 
-##Pseudocode
+## Pseudocode
 
-#A contract:
+# A contract:
 ```solidity
 interface IExitContract {
     event ExitRequestMessageEvent(Message message);
