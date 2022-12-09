@@ -1,4 +1,4 @@
-### Withdrawer initiated exits
+# Withdrawer initiated exits
 
 ## Abstract
 Introduce a new type of message from a dedicated smart contract to trigger a validator exit. The message provides the owner of type 0x01 withdrawal credentials the capability to initiate the validator exit.
@@ -10,7 +10,7 @@ Currently, control over withdrawal credentials doesn’t provide the capability 
 ## Solution
 We propose to use a similar mechanism as is used for deposits to initiate the exits by 0x01 withdrawal credentials. To make sure the beacon chain is not DoSed by exit requests, we propose to implement a set of validity checks on the execution layer and set a limit to the number of valid exit attempts per block. If all validity checks are passed, a message is emitted on EL as an EVM event from a smart contract. Then the request is parsed and processed on a beacon chain client just like DepositEvent from DepositContract is processed.
 One difference from a deposit contract is that we propose this event to be a request from the execution layer to consensus layer that is not guaranteed to succeed. The reason for this is that making this request a guaranteed success would require a tighter coupling between execution layer and consensus layer that seems healthy.
-The other difference is the following. Just like events from deposit contract, withdrawer initiated exit requests' events need to be validatable even in the absence of access to execution layer blocks' data, e.g. in case Ethereum implements EIP-XXXX many years from now. That means that consensus layer needs to store some data to authenticate the validity of requests. Unlike deposit messages, exit requests themselves do not need a permanent append-only data structure, so we defaulted to putting a hash of all of relevant blocks' (#TODO - which block is it? 8h ago?) exit requests messages to the blocks' eth1_data. The list of exit requests and exit_requests_hash can be cleared for each new block. The goal is to give a possibility for future verification of all logged exit requests without access to the execution layer data: "enough validators back in the day signed that data. 
+The other difference is the following. Just like events from deposit contract, withdrawer initiated exit requests' events need to be validatable even in the absence of access to execution layer blocks' data, e.g. in case Ethereum implements EIP-XXXX many years from now. That means that consensus layer needs to store some data to authenticate the validity of requests. Unlike deposit messages, exit requests themselves do not need a permanent append-only data structure, so we defaulted to putting a hash of all of relevant blocks' (#TODO - which block is it? 8h ago?) exit requests messages to the blocks' eth1_data. The array of exit requests and `exit_requests_hash` can be cleared for each new block. The goal is to give a possibility for future verification of all logged exit requests without access to the execution layer data: "enough validators back in the day signed that data. 
 
 ## Specification 
 The sequence of operations for triggering a withdrawal is divided into two parts: first, pre-checks implemented in the smart contract and emission of an event, and then the event processing on the beacon chain client.
@@ -61,18 +61,18 @@ contract ExitContract is IExitContract {
    
     mapping(bytes => uint256) private attemptedAt;       // validator’s pubkey => block number
     
-    bytes32[MAX_EXIT_NUMBER] exits;    // successively accumulates hashes of pubkeys and withdrawal credentials for requesting exits
+    bytes32[MAX_EXIT_NUMBER] withdrawer_exit_requests;    // successively accumulates hashes of pubkeys and withdrawal credentials for requesting exits
 
-    uint256 exits_counter;
+    uint256 withdrawer_exit_requests_counter;
    
     uint256 currentBN;
 
     // Zeroing counter, clear an array and a hash of concatenated exits
     function flush() {
-        exits_counter = 0;    
+        withdrawer_exit_requests_counter = 0;    
         for (uint i = 0; i < MAX_EXIT_NUMBER; i++)
-            exits[i] = 0;
-        exits_hash = 0; 
+            withdrawer_exit_requests[i] = 0;
+        withdrawer_exit_requests_hash = 0; 
     }
 
     constructor() public {
@@ -82,17 +82,12 @@ contract ExitContract is IExitContract {
     struct WithdrawerExitRequest {
         address withdrawerAddress;
         bytes pubkey;
-        bytes32[MAX_EXIT_NUMBER] exits;
-#        uint256 exits_counter;    #TODO?
+        bytes32[MAX_EXIT_NUMBER] withdrawer_exit_requests;
       }
 
-    function get_exits_hash() {
-         return to_little_endian_64(uint64(exits_hash));
+    function get_withdrawer_exit_requests_hash() {
+         return to_little_endian_64(uint64(withdrawer_exit_requests_hash));
     }
-
-#    function get_count() {
-#        return to_little_endian_64(uint64(exits_counter));
-#    }
 
     function doWithdrawalRequest(
         bytes calldata pubkey,
@@ -108,7 +103,7 @@ contract ExitContract is IExitContract {
             flush();
         }
 
-        require(exits_counter < MAX_EXIT_NUMBER, "Too many withdrawal attempts within the block");
+        require(withdrawer_exit_requests_counter < MAX_EXIT_NUMBER, "Too many withdrawal attempts within the block");
         require(bN - attemptedAt[pubkey] > WITHDRAWER_EXIT_ATTEMPTS_INTERVAL, "Too frequent exit attempts for this validator");
 
         if (current_epoch < validator_activation_epoch + SHARD_COMMITTEE_PERIOD) { revert("The validator is too young")}
@@ -117,21 +112,23 @@ contract ExitContract is IExitContract {
 
         # Since everything is ok, lets add an information to the array and emit a message
         
-        exits_counter++;
+        withdrawer_exit_requests_counter++;
         attemptedAt[pubkey] = bN;
         
-        exits[exits_counter - 1] = sha256(abi.encodePacked(pubkey, withdrawal_credentials); // or maybe just a pubkey? and no need to do sha256?
-        exits_hash = sha256(abi.encodePacked(exits[0 : exits_counter - 1]));
+        withdrawer_exit_requests[withdrawer_exit_requests_counter - 1] = sha256(abi.encodePacked(pubkey, withdrawal_credentials); // or maybe just a pubkey? and no need to do sha256?
+        withdrawer_exit_requests_hash = sha256(abi.encodePacked(withdrawer_exit_requests[0 : withdrawer_exit_requests_counter - 1]));
         
-        WithdrawerExitRequest memory withdrawerExitRequest = WithdrawerExitRequest(msg.sender, pubkey, exits, exits_hash); #TODO
+        WithdrawerExitRequest memory withdrawerExitRequest = WithdrawerExitRequest(msg.sender, pubkey, withdrawer_exit_requests, withdrawer_exit_requests_hash); //TODO
         bytes memory encodedData = abi.encode(withdrawerExitRequest);
     
-        emit Message(encodedData); #TODO
+        emit Message(encodedData); //TODO
         assert(false);
     }
 
-    #TODO return hash and amount?
-    function get_WithdrawerExitRequestData -> (hash, count?)
+    //TODO return hash and amount?
+    function get_WithdrawerExitRequestData() {
+        return abi.encodePacked(withdrawer_exit_requests_hash, withdrawer_exit_requests_counter);   
+    }
 
 
 function to_little_endian_64(uint64 value) internal pure returns (bytes memory ret) {
@@ -151,12 +148,11 @@ function to_little_endian_64(uint64 value) internal pure returns (bytes memory r
 
 ```
 
-### An extension of the Beacon spec
+### An extension of the Beacon spec:
 ```python
 class WithdrawerExitRequestData(Container):
     pubkey: BLSPubkey
     withdrawal_credentials: Bytes32
-
 
 class BeaconBlockBody(Container):
     #...
@@ -171,16 +167,16 @@ def process_block(state: BeaconState, block: BeaconBlock) -> None:  #nothing new
 #TODO
 def process_eth1_data(state, body):
     ...
-    assert eth1_data.wer_hash = hash(body.wers) 
+    assert eth1_data.withdrawer_exit_requests_hash = sha256(abi.encodePacked((body.withdrawer_exit_requests[:]))) 
     ...
 
 
 def process_operations(state: BeaconState, body: BeaconBlockBody) -> None:
 
     ...
-    assert len(body.exits) == state.eth1_data.exits_counter	# Just delete this?
+    assert len(body.withdrawer_exit_requests) == state.eth1_data.withdrawer_exit_requests_counter	# Just delete this?
 
-    assert is_valid_hash(state.eth1_data.exits, state.eth1_data.exitshash);
+    assert is_valid_hash(state.eth1_data.withdrawer_exit_requests, state.eth1_data.withdrawer_exit_requests_hash);
 
     def for_ops(operations: Sequence[Any], fn: Callable[[BeaconState, Any], None]) -> None:
         for operation in operations:
@@ -190,11 +186,10 @@ def process_operations(state: BeaconState, body: BeaconBlockBody) -> None:
     for_ops(body.attester_slashings, process_attester_slashing)
     for_ops(body.attestations, process_attestation)
     for_ops(body.deposits, process_deposit)
-    for_ops(body.voluntary_exits, process_voluntary_exit)
+    for_ops(body.voluntary_withdrawer_exit_requests, process_voluntary_exit)
 
     #todo - assume authencity checked
     for_ops(body.withdrawer_exit_requests, process_withdrawer_exit_requests) #TODO
-
 
 
 def is_withdrawer_exit_valid(state: BeaconState, withdrawer_exit: WithdrawerExitRequest) -> bool:
@@ -243,7 +238,7 @@ def process_withdrawer_exit_requests(state: BeaconState,
     #verify hash?
 ```
 
-### A client-side pseudocode
+### A client-side pseudocode:
 ```solidity
 func (vs *Server) withdrawer_deposits(
   ctx context.Context,
